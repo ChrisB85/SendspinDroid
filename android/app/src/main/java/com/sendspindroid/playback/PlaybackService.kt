@@ -2274,8 +2274,7 @@ class PlaybackService : MediaLibraryService() {
             serverTimelineCursorUs = audioStats.serverTimelineCursorUs,
             scheduledStartLoopTimeUs = audioStats.scheduledStartLoopTimeUs,
             firstServerTimestampUs = audioStats.firstServerTimestampUs,
-            convergenceTimeMs = timeFilter.convergenceTimeMillis,
-            stabilityScore = timeFilter.stability
+            convergenceTimeMs = timeFilter.convergenceTimeMillis
         )
 
         AppLog.Audio.d("Stats: " +
@@ -3030,7 +3029,6 @@ class PlaybackService : MediaLibraryService() {
             bundle.putInt("reconnect_attempts", client.getReconnectAttempts())
             bundle.putBoolean("clock_frozen", timeFilter.isFrozen)
             bundle.putDouble("static_delay_ms", timeFilter.staticDelayMs)
-            bundle.putDouble("user_sync_offset_ms", timeFilter.userSyncOffsetMs)
 
             // Connection health telemetry (issue #128). Keys left absent when
             // the underlying value is null so StatsViewModel can distinguish
@@ -3040,7 +3038,6 @@ class PlaybackService : MediaLibraryService() {
             bundle.putInt("reconnect_attempts_total", client.getReconnectAttemptsTotal())
             client.getLastDisconnectCode()?.let { bundle.putInt("last_disconnect_code", it) }
             client.getLastDisconnectReason()?.let { bundle.putString("last_disconnect_reason", it) }
-            bundle.putDouble("time_filter_stability", timeFilter.stability)
             bundle.putLong("time_filter_convergence_ms", timeFilter.convergenceTimeMillis)
         }
 
