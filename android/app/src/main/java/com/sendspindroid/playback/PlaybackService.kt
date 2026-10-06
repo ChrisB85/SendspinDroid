@@ -1762,6 +1762,9 @@ class PlaybackService : MediaLibraryService() {
             durationMs = update.durationMs ?: current.durationMs,
             positionMs = current.positionMs,
             playbackSpeed = current.playbackSpeed
+        ).copy(
+            // withMetadata stamps the position as received now, and none was.
+            positionUpdatedAt = current.positionUpdatedAt
         )
 
         sendSpinPlayer?.updateMediaItem(
