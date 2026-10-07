@@ -72,6 +72,7 @@ import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import com.sendspindroid.sendspin.decoder.AudioDecoder
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.sendspin.decoder.DecodedAudio
 import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.NetworkState
@@ -1102,10 +1103,10 @@ class PlaybackService : MediaLibraryService() {
         if (t.generation != decodeGeneration) return
 
         val decoder = audioDecoder
-        val pcmData: ByteArray = try {
+        val decoded = try {
             when {
-                decoder != null -> decoder.decode(t.audioData)
-                currentCodec == "pcm" -> t.audioData
+                decoder != null -> decoder.decode(t.audioData, t.serverTimeMicros)
+                currentCodec == "pcm" -> listOf(DecodedAudio(t.serverTimeMicros, t.audioData))
                 else -> return // compressed codec with no decoder -- drop chunk
             }
         } catch (e: Exception) {
@@ -1113,7 +1114,9 @@ class PlaybackService : MediaLibraryService() {
             return
         }
         val player = syncAudioPlayer ?: return
-        player.queueChunk(t.serverTimeMicros, pcmData)
+        // Stamped by the decoder, not with this chunk's time: what comes out
+        // can be the previous chunk's audio.
+        for (audio in decoded) player.queueChunk(audio.timestampUs, audio.pcm)
     }
 
     /**

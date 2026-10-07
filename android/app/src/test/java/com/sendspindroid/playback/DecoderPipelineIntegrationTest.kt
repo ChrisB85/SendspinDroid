@@ -530,7 +530,7 @@ class DecoderPipelineIntegrationTest {
             val decoder = audioDecoder
             val pcmData: ByteArray? = try {
                 when {
-                    decoder != null -> decoder.decode(audioData)
+                    decoder != null -> decoder.decode(audioData, serverTimeMicros).firstOrNull()?.pcm
                     currentCodec == "pcm" -> audioData
                     else -> null
                 }
