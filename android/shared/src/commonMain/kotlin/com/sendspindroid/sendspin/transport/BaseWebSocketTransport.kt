@@ -73,8 +73,8 @@ abstract class BaseWebSocketTransport(
     private var senderJob: Job? = null
 
     private sealed class OutgoingMessage {
-        data class Text(val text: String) : OutgoingMessage()
-        data class Binary(val bytes: ByteArray) : OutgoingMessage()
+        class Text(val text: String, val beforeWrite: (() -> Unit)? = null) : OutgoingMessage()
+        class Binary(val bytes: ByteArray, val beforeWrite: (() -> Unit)? = null) : OutgoingMessage()
     }
 
     // ------------------------------------------------------------------
@@ -176,8 +176,14 @@ abstract class BaseWebSocketTransport(
                         try {
                             for (msg in sendChannel) {
                                 when (msg) {
-                                    is OutgoingMessage.Text -> send(Frame.Text(msg.text))
-                                    is OutgoingMessage.Binary -> send(Frame.Binary(true, msg.bytes))
+                                    is OutgoingMessage.Text -> {
+                                        msg.beforeWrite?.invoke()
+                                        send(Frame.Text(msg.text))
+                                    }
+                                    is OutgoingMessage.Binary -> {
+                                        msg.beforeWrite?.invoke()
+                                        send(Frame.Binary(true, msg.bytes))
+                                    }
                                 }
                             }
                         } catch (_: ClosedSendChannelException) {
@@ -252,6 +258,15 @@ abstract class BaseWebSocketTransport(
         return channel.trySend(OutgoingMessage.Text(text)).isSuccess
     }
 
+    override fun send(text: String, beforeWrite: () -> Unit): Boolean {
+        if (!isConnected) {
+            Log.w(tag, "Cannot send text: not connected (state=$state)")
+            return false
+        }
+        val channel = outgoingChannel ?: return false
+        return channel.trySend(OutgoingMessage.Text(text, beforeWrite)).isSuccess
+    }
+
     override fun send(bytes: ByteArray): Boolean {
         if (!isConnected) {
             Log.w(tag, "Cannot send bytes: not connected (state=$state)")
@@ -259,6 +274,15 @@ abstract class BaseWebSocketTransport(
         }
         val channel = outgoingChannel ?: return false
         return channel.trySend(OutgoingMessage.Binary(bytes)).isSuccess
+    }
+
+    override fun send(bytes: ByteArray, beforeWrite: () -> Unit): Boolean {
+        if (!isConnected) {
+            Log.w(tag, "Cannot send bytes: not connected (state=$state)")
+            return false
+        }
+        val channel = outgoingChannel ?: return false
+        return channel.trySend(OutgoingMessage.Binary(bytes, beforeWrite)).isSuccess
     }
 
     override fun close(code: Int, reason: String) {

@@ -41,12 +41,34 @@ interface SendSpinTransport {
     fun send(text: String): Boolean
 
     /**
+     * [send], running [beforeWrite] as late as the transport can before the
+     * text frame goes to the socket. See the binary overload.
+     */
+    fun send(text: String, beforeWrite: () -> Unit): Boolean {
+        beforeWrite()
+        return send(text)
+    }
+
+    /**
      * Send binary data (audio chunks, artwork).
      *
      * @param bytes The binary data to send
      * @return true if the data was queued for sending, false if transport unavailable
      */
     fun send(bytes: ByteArray): Boolean
+
+    /**
+     * [send], running [beforeWrite] as late as the transport can before the
+     * frame goes to the socket.
+     *
+     * Sending is queued, so the moment `send` is called is not the moment the
+     * frame leaves. A caller that needs the latter - the clock-sync round trip
+     * is measured from it - takes its timestamp in [beforeWrite].
+     */
+    fun send(bytes: ByteArray, beforeWrite: () -> Unit): Boolean {
+        beforeWrite()
+        return send(bytes)
+    }
 
     /**
      * Close the transport connection.

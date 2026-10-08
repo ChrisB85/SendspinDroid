@@ -506,6 +506,38 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
     /** Frames sent on the encrypted path, in order. */
     val sentBinaryFrames = mutableListOf<ByteArray>()
 
+    /**
+     * When set, a frame sent with a before-write hook waits in [heldWrites]
+     * with its hook not yet run, as it would in a transport's send queue.
+     */
+    var holdWrites = false
+    val heldWrites = mutableListOf<() -> Unit>()
+
+    override fun sendBinaryFrame(bytes: ByteArray, beforeWrite: () -> Unit) {
+        if (holdWrites) {
+            heldWrites += { beforeWrite(); sendBinaryFrame(bytes) }
+        } else {
+            super.sendBinaryFrame(bytes, beforeWrite)
+        }
+    }
+
+    override fun sendTextMessage(text: String, beforeWrite: () -> Unit) {
+        if (holdWrites) {
+            heldWrites += { beforeWrite(); sendTextMessage(text) }
+        } else {
+            super.sendTextMessage(text, beforeWrite)
+        }
+    }
+
+    val testScheduler get() = testScope.testScheduler
+    fun handleTextFrameForTest(text: String) = handleTextFrame(text)
+    fun sendClientTimeForTest() = sendClientTime()
+    /** Time sync running, with nothing sent until the test asks or virtual time advances. */
+    fun startTimeSyncForTest() {
+        initTimeSyncManager(timeFilter)
+        startTimeSync()
+    }
+
     override fun sendBinaryFrame(bytes: ByteArray) {
         sentBinaryFrames.add(bytes)
     }

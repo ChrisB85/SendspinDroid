@@ -709,9 +709,23 @@ class SendSpin(
         }
     }
 
+    override fun sendTextMessage(text: String, beforeWrite: () -> Unit) {
+        val t = transport ?: return
+        if (!t.send(text, beforeWrite)) {
+            Log.w(TAG, "Failed to send message")
+        }
+    }
+
     override fun sendBinaryFrame(bytes: ByteArray) {
         val t = transport ?: return
         if (!t.send(bytes)) {
+            Log.w(TAG, "Failed to send binary frame (${bytes.size} bytes)")
+        }
+    }
+
+    override fun sendBinaryFrame(bytes: ByteArray, beforeWrite: () -> Unit) {
+        val t = transport ?: return
+        if (!t.send(bytes, beforeWrite)) {
             Log.w(TAG, "Failed to send binary frame (${bytes.size} bytes)")
         }
     }
@@ -1550,7 +1564,7 @@ class SendSpin(
 
         override fun onMessage(text: String) {
             lastByteReceivedAtMs.set(System.currentTimeMillis())
-            handleTextMessage(text)
+            handleTextFrame(text)
         }
 
         override fun onMessage(bytes: ByteArray) {
