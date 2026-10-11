@@ -11,20 +11,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sendspindroid.R
 import com.sendspindroid.ui.adaptive.AdaptiveDefaults
 import com.sendspindroid.ui.adaptive.FormFactor
 import com.sendspindroid.ui.adaptive.LocalFormFactor
@@ -33,7 +40,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /**
- * Track progress display showing elapsed / total as a simple timestamp pair.
+ * Track progress bar with elapsed / total timestamps beneath it.
+ *
+ * When [seekable], the bar is a slider: dragging previews the position and
+ * releasing calls [onSeek] once. Otherwise it is a read-only bar.
  *
  * Interpolates position forward at 250ms intervals when playing, anchored to
  * the last server position update. Hidden when duration is unknown (<=0).
@@ -45,6 +55,8 @@ fun TrackProgressBar(
     isPlaying: Boolean,
     accentColor: Color?,
     positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
+    seekable: Boolean = false,
+    onSeek: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0) return
@@ -78,18 +90,86 @@ fun TrackProgressBar(
         }
     }
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "${formatTime(displayPositionMs)} / ${formatTime(durationMs)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    // Where the user dragged to. Shown instead of the interpolated position
+    // during the drag and, after release, until the server reports the result.
+    var scrubPositionMs by remember { mutableStateOf<Long?>(null) }
+    var awaitingServer by remember { mutableStateOf(false) }
+
+    LaunchedEffect(positionMs, positionUpdatedAt) {
+        if (awaitingServer) {
+            scrubPositionMs = null
+            awaitingServer = false
+        }
+    }
+
+    // A server that ignores the seek sends nothing: go back to its position.
+    LaunchedEffect(awaitingServer) {
+        if (awaitingServer) {
+            delay(SEEK_HOLD_MS)
+            scrubPositionMs = null
+            awaitingServer = false
+        }
+    }
+
+    val shownPositionMs = scrubPositionMs ?: displayPositionMs
+    val barColor = accentColor ?: MaterialTheme.colorScheme.primary
+    val barDescription = stringResource(R.string.track_position)
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (seekable) {
+            Slider(
+                value = shownPositionMs.toFloat(),
+                onValueChange = {
+                    scrubPositionMs = it.toLong()
+                    awaitingServer = false
+                },
+                // One seek on release: each one restarts the stream for the group.
+                onValueChangeFinished = {
+                    scrubPositionMs?.let { target ->
+                        onSeek(target)
+                        awaitingServer = true
+                    }
+                },
+                valueRange = 0f..durationMs.toFloat(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = barDescription },
+                colors = SliderDefaults.colors(
+                    thumbColor = barColor,
+                    activeTrackColor = barColor,
+                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            )
+        } else {
+            // No thumb when the server does not offer seek, so the bar never
+            // looks draggable.
+            LinearProgressIndicator(
+                progress = { (shownPositionMs.toFloat() / durationMs).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .semantics { contentDescription = barDescription },
+                color = barColor,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "${formatTime(shownPositionMs)} / ${formatTime(durationMs)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
+
+/** How long a released scrub position is shown while the server has not answered. */
+private const val SEEK_HOLD_MS = 2000L
 
 /**
  * TV variant with visual LinearProgressIndicator + timestamps below.

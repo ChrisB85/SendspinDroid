@@ -78,6 +78,7 @@ fun NowPlayingScreen(
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onSeek: (Long) -> Unit,
     onOpenPairingClick: () -> Unit,
     onAllowPairingClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -94,6 +95,7 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
     val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsStateWithLifecycle()
+    val seekable by viewModel.seekable.collectAsStateWithLifecycle()
     val admissionState by viewModel.admissionState.collectAsStateWithLifecycle()
     val pairingCode by viewModel.pairingCode.collectAsStateWithLifecycle()
     val pairingGestureRequested by viewModel.pairingGestureRequested.collectAsStateWithLifecycle()
@@ -207,7 +209,9 @@ fun NowPlayingScreen(
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
-                    onVolumeChange = onVolumeChange
+                    onVolumeChange = onVolumeChange,
+                    seekable = seekable && controlsEnabled,
+                    onSeek = onSeek
                 )
             }
             else -> {
@@ -227,7 +231,9 @@ fun NowPlayingScreen(
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
-                    onVolumeChange = onVolumeChange
+                    onVolumeChange = onVolumeChange,
+                    seekable = seekable && controlsEnabled,
+                    onSeek = onSeek
                 )
             }
         }
@@ -265,6 +271,8 @@ private fun NowPlayingPortrait(
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    seekable: Boolean = false,
+    onSeek: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -343,7 +351,9 @@ private fun NowPlayingPortrait(
                 durationMs = durationMs,
                 isPlaying = isPlaying,
                 accentColor = accentColor,
-                positionUpdatedAt = positionUpdatedAt
+                positionUpdatedAt = positionUpdatedAt,
+                seekable = seekable,
+                onSeek = onSeek
             )
         }
 
@@ -399,6 +409,8 @@ private fun NowPlayingLandscape(
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    seekable: Boolean = false,
+    onSeek: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -481,7 +493,9 @@ private fun NowPlayingLandscape(
                     durationMs = durationMs,
                     isPlaying = isPlaying,
                     accentColor = accentColor,
-                    positionUpdatedAt = positionUpdatedAt
+                    positionUpdatedAt = positionUpdatedAt,
+                    seekable = seekable,
+                    onSeek = onSeek
                 )
             }
 

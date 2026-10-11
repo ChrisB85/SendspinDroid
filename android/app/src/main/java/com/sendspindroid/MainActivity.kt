@@ -587,6 +587,7 @@ class MainActivity : AppCompatActivity() {
                             onVolumeChanged(volume)
                             viewModel.updateVolume(volume)
                         },
+                        onSeek = { positionMs -> onSeekRequested(positionMs) },
                         onDisconnectClick = { onDisconnectClicked() },
                         onAddServerClick = { showAddServerWizard() },
                         onStatsClick = {
@@ -1042,6 +1043,12 @@ class MainActivity : AppCompatActivity() {
 
                     // Add player listener for state updates
                     mediaController?.addListener(PlayerStateListener())
+                    // The listener only reports changes, so read the current value.
+                    viewModel.updateSeekable(
+                        mediaController?.isCommandAvailable(
+                            Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM
+                        ) == true
+                    )
 
                     // Read current session extras from an already-running service.
                     // onExtrasChanged only fires on future changes, so we must
@@ -1346,6 +1353,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+            runOnUiThread {
+                viewModel.updateSeekable(
+                    availableCommands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                )
+            }
+        }
+
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
             runOnUiThread {
                 val title = mediaMetadata.title?.toString() ?: ""
@@ -1641,6 +1656,15 @@ class MainActivity : AppCompatActivity() {
         val controller = mediaController ?: return
         val command = SessionCommand(PlaybackService.COMMAND_NEXT, Bundle.EMPTY)
         controller.sendCustomCommand(command, Bundle.EMPTY)
+    }
+
+    /**
+     * Handles a released scrub on the progress bar.
+     * The player forwards it to the server as a controller 'seek'.
+     */
+    private fun onSeekRequested(positionMs: Long) {
+        Log.d(TAG, "Seek requested: $positionMs ms")
+        mediaController?.seekTo(positionMs)
     }
 
     /**
