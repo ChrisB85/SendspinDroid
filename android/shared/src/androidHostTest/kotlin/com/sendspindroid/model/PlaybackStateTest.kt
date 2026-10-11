@@ -234,6 +234,17 @@ class PlaybackStateTest {
         assertEquals("Song", updated.title)
     }
 
+    // The server sends the track's server/state before the first group/update
+    // and does not repeat it, so joining a group must not drop the progress.
+    @Test
+    fun withGroupUpdate_firstGroup_keepsTrackProgress() {
+        val state = PlaybackState(title = "Song", durationMs = 160_000, positionMs = 93_290)
+        val updated = state.withGroupUpdate("g1", "Living Room", PlaybackStateType.PLAYING)
+
+        assertEquals(160_000L, updated.durationMs)
+        assertEquals(93_290L, updated.positionMs)
+    }
+
     // --- interpolatedPositionMs ---
 
     @Test
