@@ -1143,7 +1143,8 @@ class MainActivity : AppCompatActivity() {
             viewModel.updateTrackProgress(
                 positionMs = if (positionMs >= 0) positionMs else 0,
                 durationMs = if (durationMs >= 0) durationMs else 0,
-                positionUpdatedAt = positionUpdatedAt
+                positionUpdatedAt = positionUpdatedAt,
+                playbackSpeed = extras.getInt(PlaybackService.EXTRA_PLAYBACK_SPEED, 1000)
             )
         }
 

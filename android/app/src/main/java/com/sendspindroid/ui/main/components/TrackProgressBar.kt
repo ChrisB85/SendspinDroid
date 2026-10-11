@@ -32,6 +32,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sendspindroid.R
+import com.sendspindroid.model.trackPositionMs
 import com.sendspindroid.ui.adaptive.AdaptiveDefaults
 import com.sendspindroid.ui.adaptive.FormFactor
 import com.sendspindroid.ui.adaptive.LocalFormFactor
@@ -45,14 +46,15 @@ import kotlinx.coroutines.isActive
  * When [seekable], the bar is a slider: dragging previews the position and
  * releasing calls [onSeek] once. Otherwise it is a read-only bar.
  *
- * Interpolates position forward at 250ms intervals when playing, anchored to
- * the last server position update. Hidden when duration is unknown (<=0).
+ * Advances the position at the server's [playbackSpeed] (1000 = normal,
+ * 0 = paused) from the last server position update. Hidden when duration is
+ * unknown (<=0).
  */
 @Composable
 fun TrackProgressBar(
     positionMs: Long,
     durationMs: Long,
-    isPlaying: Boolean,
+    playbackSpeed: Int,
     accentColor: Color?,
     positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
     seekable: Boolean = false,
@@ -60,35 +62,8 @@ fun TrackProgressBar(
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0) return
-
-    // Anchor point for interpolation.
-    // Uses positionUpdatedAt (the monotonic time the server position was received) so that
-    // if this composable is destroyed and recreated (e.g. navigating away from Now Playing
-    // and back), the elapsed time since the last server update is correctly accounted for.
-    var anchorPositionMs by remember { mutableLongStateOf(positionMs) }
-    var anchorTime by remember { mutableLongStateOf(positionUpdatedAt) }
-    var displayPositionMs by remember { mutableLongStateOf(positionMs) }
-
-    // When the server sends a new position, reset the anchor. Keyed on the
-    // timestamp too: two tracks in a row can both report the same position.
-    LaunchedEffect(positionMs, positionUpdatedAt) {
-        anchorPositionMs = positionMs
-        anchorTime = positionUpdatedAt
-        displayPositionMs = positionMs
-    }
-
-    // Interpolation timer: advance position while playing
-    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime) {
-        if (!isPlaying) {
-            displayPositionMs = anchorPositionMs
-            return@LaunchedEffect
-        }
-        while (isActive) {
-            delay(250)
-            val elapsed = SystemClock.elapsedRealtime() - anchorTime
-            displayPositionMs = minOf(durationMs, anchorPositionMs + elapsed)
-        }
-    }
+    val displayPositionMs =
+        rememberTrackPositionMs(positionMs, durationMs, playbackSpeed, positionUpdatedAt)
 
     // Where the user dragged to. Shown instead of the interpolated position
     // during the drag and, after release, until the server reports the result.
@@ -179,35 +154,14 @@ private const val SEEK_HOLD_MS = 2000L
 fun TvTrackProgressBar(
     positionMs: Long,
     durationMs: Long,
-    isPlaying: Boolean,
+    playbackSpeed: Int,
     accentColor: Color?,
     positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0) return
-
-    // Same interpolation logic as TrackProgressBar
-    var anchorPositionMs by remember { mutableLongStateOf(positionMs) }
-    var anchorTime by remember { mutableLongStateOf(positionUpdatedAt) }
-    var displayPositionMs by remember { mutableLongStateOf(positionMs) }
-
-    LaunchedEffect(positionMs, positionUpdatedAt) {
-        anchorPositionMs = positionMs
-        anchorTime = positionUpdatedAt
-        displayPositionMs = positionMs
-    }
-
-    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime) {
-        if (!isPlaying) {
-            displayPositionMs = anchorPositionMs
-            return@LaunchedEffect
-        }
-        while (isActive) {
-            delay(250)
-            val elapsed = SystemClock.elapsedRealtime() - anchorTime
-            displayPositionMs = minOf(durationMs, anchorPositionMs + elapsed)
-        }
-    }
+    val displayPositionMs =
+        rememberTrackPositionMs(positionMs, durationMs, playbackSpeed, positionUpdatedAt)
 
     val progress = (displayPositionMs.toFloat() / durationMs).coerceIn(0f, 1f)
     val trackColor = accentColor ?: MaterialTheme.colorScheme.primary
@@ -247,6 +201,42 @@ fun TvTrackProgressBar(
 }
 
 /**
+ * The current track position, re-read every 250ms while the server reports a
+ * non-zero playback speed.
+ *
+ * Extrapolated from [positionUpdatedAt] (the monotonic time the server
+ * position was received), so a composable that is destroyed and recreated
+ * (e.g. navigating away from Now Playing and back) picks up where the track
+ * really is. Keyed on the timestamp too: two tracks in a row can both report
+ * the same position.
+ */
+@Composable
+private fun rememberTrackPositionMs(
+    positionMs: Long,
+    durationMs: Long,
+    playbackSpeed: Int,
+    positionUpdatedAt: Long
+): Long {
+    fun now() = trackPositionMs(
+        anchorPositionMs = positionMs,
+        elapsedMs = SystemClock.elapsedRealtime() - positionUpdatedAt,
+        playbackSpeed = playbackSpeed,
+        durationMs = durationMs
+    )
+
+    var displayPositionMs by remember { mutableLongStateOf(now()) }
+    LaunchedEffect(positionMs, durationMs, playbackSpeed, positionUpdatedAt) {
+        displayPositionMs = now()
+        if (playbackSpeed == 0) return@LaunchedEffect
+        while (isActive) {
+            delay(250)
+            displayPositionMs = now()
+        }
+    }
+    return displayPositionMs
+}
+
+/**
  * Formats milliseconds as M:SS or H:MM:SS.
  */
 internal fun formatTime(ms: Long): String {
@@ -273,7 +263,7 @@ private fun TrackProgressBarPreview() {
         TrackProgressBar(
             positionMs = 45000,
             durationMs = 210000,
-            isPlaying = true,
+            playbackSpeed = 1000,
             accentColor = null,
             modifier = Modifier.padding(horizontal = 16.dp)
         )
@@ -287,7 +277,7 @@ private fun TrackProgressBarLongTrackPreview() {
         TrackProgressBar(
             positionMs = 3725000,
             durationMs = 7200000,
-            isPlaying = false,
+            playbackSpeed = 0,
             accentColor = null,
             modifier = Modifier.padding(horizontal = 16.dp)
         )
