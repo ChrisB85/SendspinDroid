@@ -92,6 +92,10 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     private val _positionUpdatedAt = MutableStateFlow(0L)
     val positionUpdatedAt: StateFlow<Long> = _positionUpdatedAt.asStateFlow()
 
+    // Whether the server currently accepts a seek to a position in the track.
+    private val _seekable = MutableStateFlow(false)
+    val seekable: StateFlow<Boolean> = _seekable.asStateFlow()
+
     // ========================================================================
     // Artwork State
     // ========================================================================
@@ -148,6 +152,10 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _positionUpdatedAt.value = positionUpdatedAt
     }
 
+    fun updateSeekable(seekable: Boolean) {
+        _seekable.value = seekable
+    }
+
     // ========================================================================
     // Artwork Updates
     // ========================================================================
@@ -202,6 +210,7 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _positionMs.value = 0
         _durationMs.value = 0
         _positionUpdatedAt.value = 0L
+        _seekable.value = false
     }
 
     /**

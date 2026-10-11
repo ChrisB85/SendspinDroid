@@ -1492,7 +1492,6 @@ class PlaybackService : MediaLibraryService() {
                 Log.d(TAG, "Group update: id=$groupId name=$groupName state=$playbackState")
 
                 val currentState = _playbackState.value
-                val isGroupChange = groupId.isNotEmpty() && groupId != currentState.groupId
                 val newPlaybackState = PlaybackStateType.fromString(playbackState)
                 if (playbackState.isNotEmpty()) noteServerPlaybackState(newPlaybackState)
 
@@ -1526,22 +1525,16 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
 
-                val newState = if (isGroupChange) {
-                    currentState.withClearedMetadata().copy(
-                        groupId = groupId,
-                        groupName = groupName.ifEmpty { null },
-                        playbackState = newPlaybackState
-                    )
-                } else {
-                    currentState.copy(
-                        groupId = groupId.ifEmpty { currentState.groupId },
-                        groupName = groupName.ifEmpty { currentState.groupName },
-                        playbackState = if (playbackState.isNotEmpty())
-                            newPlaybackState
-                        else currentState.playbackState
-                    )
-                }
-                _playbackState.value = newState
+                // The track metadata is left alone, also when the group id is
+                // new: it belongs to server/state, which the server sends
+                // before the first group/update and does not repeat after it.
+                _playbackState.value = currentState.withGroupUpdate(
+                    groupId = groupId.ifEmpty { currentState.groupId },
+                    groupName = groupName.ifEmpty { currentState.groupName },
+                    playbackState = if (playbackState.isNotEmpty())
+                        newPlaybackState
+                    else currentState.playbackState
+                )
 
                 // Broadcast all state including group name to controllers (MainActivity)
                 broadcastSessionExtras()

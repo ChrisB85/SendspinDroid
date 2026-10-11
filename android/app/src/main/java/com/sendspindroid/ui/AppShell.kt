@@ -58,6 +58,7 @@ import com.sendspindroid.ui.adaptive.FormFactor
  * @param onNextClick Playback: next track
  * @param onSwitchGroupClick Switch playback group
  * @param onVolumeChange Volume slider callback (0-1 range)
+ * @param onSeek Progress bar scrub released at a position in milliseconds
  * @param onAllowPairingClick Confirm the dynamic pairing gesture gate
  * @param onDisconnectClick Disconnect from server
  * @param onAddServerClick FAB: launch add server wizard
@@ -71,6 +72,7 @@ fun AppShell(
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onSeek: (Long) -> Unit,
     onAllowPairingClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     onAddServerClick: () -> Unit,
@@ -102,6 +104,7 @@ fun AppShell(
                 onNextClick = onNextClick,
                 onSwitchGroupClick = onSwitchGroupClick,
                 onVolumeChange = onVolumeChange,
+                onSeek = onSeek,
                 onAllowPairingClick = onAllowPairingClick,
                 onDisconnectClick = onDisconnectClick,
                 onStatsClick = onStatsClick,
@@ -174,6 +177,7 @@ private fun ConnectedShell(
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onSeek: (Long) -> Unit,
     onAllowPairingClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     onStatsClick: () -> Unit,
@@ -303,6 +307,7 @@ private fun ConnectedShell(
             onNextClick = onNextClick,
             onSwitchGroupClick = onSwitchGroupClick,
             onVolumeChange = onVolumeChange,
+            onSeek = onSeek,
             onOpenPairingClick = onSettingsClick,
             onAllowPairingClick = onAllowPairingClick,
             modifier = Modifier
