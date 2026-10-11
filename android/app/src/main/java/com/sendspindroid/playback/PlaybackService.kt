@@ -1217,9 +1217,18 @@ class PlaybackService : MediaLibraryService() {
             Log.e(TAG, "Cannot start audio: time filter not available")
             return
         }
-        // In low memory mode, cap the chunk queue to ~10 seconds of audio
+        // In low memory mode, bound the decoded chunk queue. Not at
+        // DURATION_LOW_MEM_SEC: buffer_capacity is that many seconds of the
+        // highest PCM format we advertise, but the server counts ENCODED bytes
+        // against it. With FLAC/Opus, or a stream below the highest advertised
+        // bit depth, that is well over 10 s of decoded audio, and a 10 s cap
+        // kept dropping the chunks due next ("Queue capacity limit reached",
+        // ~100 drops every few seconds on a low-RAM TV box). The normal-mode
+        // duration still bounds memory (35 s of 48 kHz stereo 16-bit = 6.7 MB).
+        // ponytail: fixed duration; size it from buffer_capacity and the
+        // stream's codec if a server is seen sending more than 35 s ahead.
         val maxSamples = if (com.sendspindroid.UserSettings.lowMemoryMode) {
-            sampleRate.toLong() * SendSpinProtocol.Buffer.DURATION_LOW_MEM_SEC
+            sampleRate.toLong() * SendSpinProtocol.Buffer.DURATION_NORMAL_SEC
         } else {
             0L  // Unlimited
         }
