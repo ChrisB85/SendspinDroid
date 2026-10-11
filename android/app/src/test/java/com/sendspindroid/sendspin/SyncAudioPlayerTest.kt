@@ -7,9 +7,6 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.atomic.AtomicLong
-import kotlin.concurrent.thread
 
 /**
  * Unit tests for SyncAudioPlayer.
@@ -110,47 +107,6 @@ class SyncAudioPlayerTest {
     }
 
     // ========================================================================
-    // Test 2: DRAINING -> INITIALIZING on buffer exhaustion
-    // ========================================================================
-
-    @Test
-    fun `enterDraining transitions PLAYING to DRAINING`() {
-        setField("playbackState", PlaybackState.PLAYING)
-
-        val result = player.enterDraining()
-
-        assertTrue(result)
-        assertEquals(PlaybackState.DRAINING, player.getPlaybackState())
-    }
-
-    @Test
-    fun `enterDraining fails from INITIALIZING state`() {
-        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
-        val result = player.enterDraining()
-        assertFalse(result)
-        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
-    }
-
-    @Test
-    fun `buffer exhaustion during DRAINING is detectable`() {
-        val callback = mockk<SyncAudioPlayerCallback>(relaxed = true)
-        player.setStateCallback(callback)
-
-        queueChunkDirect(1_000_000L, 960)
-        setField("playbackState", PlaybackState.PLAYING)
-
-        player.enterDraining()
-        assertEquals(PlaybackState.DRAINING, player.getPlaybackState())
-
-        // Simulate buffer exhaustion
-        getChunkQueue().clear()
-        val totalQueuedSamples: AtomicLong = getField("totalQueuedSamples")
-        totalQueuedSamples.set(0)
-
-        assertEquals(0L, player.getBufferedDurationMs())
-    }
-
-    // ========================================================================
     // Test 3: Reanchor respects 5-second cooldown
     // ========================================================================
 
@@ -187,63 +143,6 @@ class SyncAudioPlayerTest {
     }
 
     // ========================================================================
-    // Test 4: enterDraining/exitDraining thread safety
-    // ========================================================================
-
-    @Test
-    fun `concurrent enterDraining and exitDraining do not corrupt state`() {
-        val iterations = 100
-        val errors = mutableListOf<String>()
-        val latch = CountDownLatch(2)
-
-        setField("playbackState", PlaybackState.PLAYING)
-
-        val thread1 = thread {
-            try {
-                for (i in 0 until iterations) {
-                    setField("playbackState", PlaybackState.PLAYING)
-                    player.enterDraining()
-                }
-            } catch (e: Exception) {
-                synchronized(errors) {
-                    errors.add("Thread1: ${e.message}")
-                }
-            } finally {
-                latch.countDown()
-            }
-        }
-
-        val thread2 = thread {
-            try {
-                for (i in 0 until iterations) {
-                    player.exitDraining()
-                    setField("playbackState", PlaybackState.PLAYING)
-                }
-            } catch (e: Exception) {
-                synchronized(errors) {
-                    errors.add("Thread2: ${e.message}")
-                }
-            } finally {
-                latch.countDown()
-            }
-        }
-
-        latch.await()
-
-        assertTrue(
-            "Concurrent enterDraining/exitDraining should not throw: $errors",
-            errors.isEmpty()
-        )
-
-        val finalState = player.getPlaybackState()
-        assertNotNull("Final state should not be null", finalState)
-        assertTrue(
-            "Final state should be a valid PlaybackState",
-            finalState in PlaybackState.entries
-        )
-    }
-
-    // ========================================================================
     // Test 5: Correction rate stays inside the spec's +/-0.5% speed limit
     // ========================================================================
 
@@ -254,7 +153,6 @@ class SyncAudioPlayerTest {
 
         setField("startTimeCalibrated", true)
         setField("playingStateEnteredAtUs", 1L)
-        setField("reconnectedAtUs", 0L)
 
         val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
         syncErrorFilter.update(100_000L, 1_000_000L)
@@ -281,7 +179,6 @@ class SyncAudioPlayerTest {
 
         setField("startTimeCalibrated", true)
         setField("playingStateEnteredAtUs", 1L)
-        setField("reconnectedAtUs", 0L)
 
         val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
         syncErrorFilter.update(-100_000L, 1_000_000L)
@@ -310,7 +207,6 @@ class SyncAudioPlayerTest {
         method.isAccessible = true
 
         setField("startTimeCalibrated", true)
-        setField("reconnectedAtUs", 0L)
 
         // Set playingStateEnteredAtUs to "now" (within grace period)
         val nowUs = System.nanoTime() / 1000
@@ -329,46 +225,13 @@ class SyncAudioPlayerTest {
         assertEquals("No insert corrections during grace period", 0, insertEvery)
     }
 
-    // ========================================================================
-    // Test 7: No corrections during RECONNECT_STABILIZATION
-    // ========================================================================
-
     @Test
-    fun `no corrections during reconnect stabilization period`() {
+    fun `corrections are scheduled once the startup grace period has passed`() {
         val method = SyncAudioPlayer::class.java.getDeclaredMethod("updateCorrectionSchedule")
         method.isAccessible = true
 
         setField("startTimeCalibrated", true)
         setField("playingStateEnteredAtUs", 1L)
-
-        // Set reconnectedAtUs to "now" (within 2s stabilization period)
-        val nowUs = System.nanoTime() / 1000
-        setField("reconnectedAtUs", nowUs)
-
-        val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
-        syncErrorFilter.update(50_000L, 1_000_000L)
-        syncErrorFilter.update(50_000L, 2_000_000L)
-
-        method.invoke(player)
-
-        val dropEvery: Int = getField("dropEveryNFrames")
-        val insertEvery: Int = getField("insertEveryNFrames")
-
-        assertEquals("No drop corrections during reconnect stabilization", 0, dropEvery)
-        assertEquals("No insert corrections during reconnect stabilization", 0, insertEvery)
-    }
-
-    @Test
-    fun `corrections resume after reconnect stabilization expires`() {
-        val method = SyncAudioPlayer::class.java.getDeclaredMethod("updateCorrectionSchedule")
-        method.isAccessible = true
-
-        setField("startTimeCalibrated", true)
-        setField("playingStateEnteredAtUs", 1L)
-
-        // Set reconnectedAtUs to 3 seconds ago (stabilization is 2 seconds)
-        val nowUs = System.nanoTime() / 1000
-        setField("reconnectedAtUs", nowUs - 3_000_000L)
 
         val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
         syncErrorFilter.update(50_000L, 1_000_000L)
@@ -380,7 +243,7 @@ class SyncAudioPlayerTest {
         val dropEvery: Int = getField("dropEveryNFrames")
 
         assertTrue(
-            "Corrections should resume after stabilization expires",
+            "Corrections should be scheduled after the grace period",
             dropEvery > 0
         )
     }
@@ -469,83 +332,26 @@ class SyncAudioPlayerTest {
     }
 
     // ========================================================================
-    // Test 10: Pre-sync chunk buffering
+    // Test 10: Chunks that arrive before time sync
     // ========================================================================
 
     @Test
-    fun `chunks buffered when time sync not ready`() {
+    fun `chunks received before time sync is ready are queued`() {
         every { timeFilter.isReady } returns false
 
         for (i in 0 until 5) {
-            player.queueChunk(i * 20_000L, makePcmData(960))
+            player.queueChunk(1_000_000L + i * 20_000L, makePcmData(960))
         }
 
-        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
-
-        val pendingChunks: MutableList<*> = getField("pendingChunks")
-        assertEquals("5 chunks should be buffered", 5, pendingChunks.size)
-    }
-
-    @Test
-    fun `pending chunks processed when time sync becomes ready`() {
-        every { timeFilter.isReady } returns false
-
-        for (i in 0 until 5) {
-            val ts = 1_000_000L + i * 20_000L
-            player.queueChunk(ts, makePcmData(960))
-        }
-
-        val pendingChunks: MutableList<*> = getField("pendingChunks")
-        assertEquals(5, pendingChunks.size)
-
-        // Make time sync ready and queue one more chunk to trigger processing
-        every { timeFilter.isReady } returns true
-        val nextTs = 1_000_000L + 5 * 20_000L
-        player.queueChunk(nextTs, makePcmData(960))
-
-        assertEquals("Pending chunks should be processed", 0, pendingChunks.size)
+        // They wait in the queue; start gating holds them until the clock is
+        // synchronised (see SyncAudioPlayerLoopTest).
+        assertEquals("5 chunks should be queued", 5, getChunkQueue().size)
         assertEquals(PlaybackState.WAITING_FOR_START, player.getPlaybackState())
-    }
-
-    @Test
-    fun `pending buffer respects MAX_PENDING_CHUNKS limit`() {
-        every { timeFilter.isReady } returns false
-
-        for (i in 0 until 510) {
-            player.queueChunk(i * 20_000L, makePcmData(960))
-        }
-
-        val pendingChunks: MutableList<*> = getField("pendingChunks")
-        assertEquals("Buffer should cap at MAX_PENDING_CHUNKS (500)", 500, pendingChunks.size)
-
-        val stats = player.getStats()
-        assertTrue("Excess chunks should be dropped", stats.chunksDropped > 0)
     }
 
     // ========================================================================
     // Additional supporting tests
     // ========================================================================
-
-    @Test
-    fun `exitDraining transitions to PLAYING and records reconnection time`() {
-        setField("playbackState", PlaybackState.PLAYING)
-        player.enterDraining()
-        assertEquals(PlaybackState.DRAINING, player.getPlaybackState())
-
-        val result = player.exitDraining()
-        assertTrue(result)
-        assertEquals(PlaybackState.PLAYING, player.getPlaybackState())
-
-        val reconnectedAt: Long = getField("reconnectedAtUs")
-        assertTrue("reconnectedAtUs should be set after exitDraining", reconnectedAt > 0)
-    }
-
-    @Test
-    fun `exitDraining fails when not in DRAINING state`() {
-        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
-        val result = player.exitDraining()
-        assertFalse(result)
-    }
 
     @Test
     fun `clearBuffer resets state to INITIALIZING`() {

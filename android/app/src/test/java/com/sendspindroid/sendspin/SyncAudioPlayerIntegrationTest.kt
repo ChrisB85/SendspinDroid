@@ -78,7 +78,7 @@ class SyncAudioPlayerIntegrationTest {
     }
 
     @Test
-    fun `setSyncMuted true zero-fills writes through playChunkWithCorrection`() {
+    fun `sync mute silences by gain and keeps writing through playChunkWithCorrection`() {
         val timeFilter = mockk<SendspinTimeFilter>(relaxed = true)
         every { timeFilter.isReady } returns true
         every { timeFilter.serverToClient(any()) } answers { firstArg() }
@@ -101,19 +101,20 @@ class SyncAudioPlayerIntegrationTest {
         val pcm = ByteArray(frames * 4) { 0x42 }
         val chunk = makeAudioChunkReflective(pcm, frames)
 
-        player.setSyncMuted(true)
+        player.setMuted(SyncAudioPlayer.MuteReason.SYNC, true)
         invokePlayChunkWithCorrection(player, chunk)
 
+        assertEquals("sync mute is immediate output gain", 0f, fakeSink.volume)
         val record = fakeSink.writes.firstOrNull()
-            ?: error("expected one write to fake sink")
+            ?: error("a muted player must keep writing so it stays in sync")
         assertTrue(
-            "muted writes must be zero-filled",
-            record.snapshotFirstBytes.all { it == 0.toByte() },
+            "muted writes keep their PCM; the gain silences them",
+            record.snapshotFirstBytes.all { it == 0x42.toByte() },
         )
     }
 
     @Test
-    fun `setSyncMuted false leaves PCM bytes untouched in playChunkWithCorrection`() {
+    fun `unmuted player leaves PCM bytes untouched in playChunkWithCorrection`() {
         val timeFilter = mockk<SendspinTimeFilter>(relaxed = true)
         every { timeFilter.isReady } returns true
         every { timeFilter.serverToClient(any()) } answers { firstArg() }
@@ -433,12 +434,12 @@ class SyncAudioPlayerIntegrationTest {
         val (player, sink) = newSyncPlayer(PlaybackState.WAITING_FOR_START)
         val dacTimeUs = scriptDac(player, sink)
         queueChunks(player, dacTimeUs, count = 10)  // due now, going by the timestamp
+        setField(player, "lastUsableTimestampAtUs", now / 1000)
 
-        // The timestamp is 500 ms old: the track has stalled, so it says
-        // nothing about when the next frame will play. Kalman gating takes
-        // over, and its scheduled start has not been reached.
-        now += 500_000_000L
-        setField(player, "scheduledStartLoopTimeUs", now / 1000 + 1_000_000L)
+        // The timestamp is 200 ms old: the track has stalled, so it says
+        // nothing about when the next frame will play. Gating waits for a
+        // fresh one.
+        now += 200_000_000L
 
         assertTrue("must keep waiting", invokeHandleStartGatingDacAware(player, sink))
         assertEquals(PlaybackState.WAITING_FOR_START, player.getPlaybackState())

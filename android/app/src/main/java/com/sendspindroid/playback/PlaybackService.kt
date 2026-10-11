@@ -133,10 +133,6 @@ class PlaybackService : MediaLibraryService() {
     // thread reads or writes this field.
     private var audioDecoder: AudioDecoder? = null
 
-    // When true, the next state/group message should call exitDraining() AFTER processing.
-    // This ensures the DRAINING check in onStateChanged/onGroupUpdate fires while still
-    // in DRAINING state, before transitioning back to PLAYING.
-    @Volatile private var pendingExitDraining = false
     private var currentCodec: String = "pcm"  // Track current stream codec for stats
 
     // Current server connection info (for MA integration)
@@ -741,13 +737,7 @@ class PlaybackService : MediaLibraryService() {
                         // onReconnected ran first (set pendingExitDraining = true) then
                         // onConnected ran. We combine them: if previous state was Connecting
                         // we were reconnecting, so set pendingExitDraining first.
-                        val wasReconnecting = prevSendSpinState is TransportState.Connecting
                         val serverName = sendSpinClient?.getServerName() ?: ""
-                        if (wasReconnecting) {
-                            // Deferred exitDraining so first server/state or group/update
-                            // message is processed while still in DRAINING state.
-                            pendingExitDraining = true
-                        }
                         Log.d(TAG, "Connected to: $serverName")
                         sendSpinPlayer?.updateConnectionState(true, serverName)
                         sendSpinPlayer?.clearError()
@@ -920,10 +910,9 @@ class PlaybackService : MediaLibraryService() {
                             // PORTED FROM onReconnecting (the Ready->Connecting path during
                             // network handover or stall watchdog):
                             val serverName = sendSpinClient?.getServerName() ?: ""
-                            Log.i(TAG, "Reconnecting to $serverName - entering DRAINING mode")
-                            // enterDraining() is thread-safe (guarded by stateLock).
-                            syncAudioPlayer?.enterDraining()
-                            pendingExitDraining = false  // Clear any stale flag
+                            // The player keeps playing what it has queued; the Beta19
+                            // player has no separate DRAINING state.
+                            Log.i(TAG, "Reconnecting to $serverName")
 
                             // Broadcast to UI
                             broadcastConnectionState(STATE_RECONNECTING, serverName)
@@ -1114,9 +1103,20 @@ class PlaybackService : MediaLibraryService() {
             return
         }
         val player = syncAudioPlayer ?: return
+        // Checked again, by the player under the lock its clear takes: a
+        // stream/clear or stream/end that landed while this chunk was
+        // decoding has cleared the player or is about to, and a chunk queued
+        // after that would sit at the head of the queue with the old stream's
+        // timestamp. The new stream's audio is then discarded as overlap
+        // until it catches up - seconds of silence after a skip. The
+        // generation is bumped before the clear is posted, so a chunk that
+        // passes here is queued before the clear and removed by it.
+        //
         // Stamped by the decoder, not with this chunk's time: what comes out
         // can be the previous chunk's audio.
-        for (audio in decoded) player.queueChunk(audio.timestampUs, audio.pcm)
+        for (audio in decoded) {
+            player.queueChunk(audio.timestampUs, audio.pcm) { t.generation == decodeGeneration }
+        }
     }
 
     /**
@@ -1184,36 +1184,6 @@ class PlaybackService : MediaLibraryService() {
                 sendSpinPlayer?.updateStateFromPlayer()
             }
         }
-
-        override fun onBufferLow(remainingMs: Long) {
-            Log.w(TAG, "Buffer low during reconnection: ${remainingMs}ms remaining")
-            // Update session extras so UI can show buffer status
-            mainHandler.post {
-                broadcastSessionExtras()
-            }
-        }
-
-        @OptIn(UnstableApi::class)
-        override fun onBufferExhausted() {
-            Log.e(TAG, "Buffer exhausted during reconnection - stopping playback")
-            mainHandler.post {
-                // Stop audio playback and release playback locks
-                syncAudioPlayer?.stop()
-                releasePlaybackLocks()
-
-                // Broadcast state after buffer exhausted
-                broadcastConnectionState(STATE_ERROR, errorMessage = "Connection lost")
-
-                // Clear playback state
-                _playbackState.value = _playbackState.value.copy(
-                    playbackState = PlaybackStateType.STOPPED
-                )
-                sendSpinPlayer?.updatePlayWhenReadyFromServer(false)
-
-                // Stop foreground notification since playback failed
-                stopForegroundNotification()
-            }
-        }
     }
 
     /**
@@ -1270,21 +1240,12 @@ class PlaybackService : MediaLibraryService() {
 
                 // Handle playback state transitions per SendSpin spec
                 if (newState == PlaybackStateType.STOPPED) {
-                    // Check if we're in DRAINING state (actively playing from buffer during reconnection)
-                    val isDraining = syncAudioPlayer?.getPlaybackState() == SyncPlaybackState.DRAINING
-                    if (isDraining) {
-                        // We're reconnecting with active buffer - request server to resume playback
-                        Log.i(TAG, "Received stop via server/state while DRAINING - sending play command to resume")
-                        sendSpinClient?.play()
-                        // Don't update playWhenReady or clear buffer - keep playing
-                    } else {
-                        // Stop: "reset position to beginning" - clear buffer
-                        Log.d(TAG, "State is stopped - clearing audio buffer and releasing playback locks")
-                        sendSpinPlayer?.updatePlayWhenReadyFromServer(false)
-                        syncAudioPlayer?.clearBuffer()
-                        syncAudioPlayer?.pause()
-                        releasePlaybackLocks()
-                    }
+                    // Stop: "reset position to beginning" - clear buffer
+                    Log.d(TAG, "State is stopped - clearing audio buffer and releasing playback locks")
+                    sendSpinPlayer?.updatePlayWhenReadyFromServer(false)
+                    syncAudioPlayer?.clearBuffer()
+                    syncAudioPlayer?.pause()
+                    releasePlaybackLocks()
                 } else if (newState == PlaybackStateType.PAUSED) {
                     // Pause: "maintains current position for later resumption" - keep buffer
                     Log.d(TAG, "State is paused - pausing audio (keeping buffer)")
@@ -1301,8 +1262,6 @@ class PlaybackService : MediaLibraryService() {
 
                 _playbackState.value = _playbackState.value.copy(playbackState = newState)
 
-                // Complete deferred DRAINING exit after processing state
-                completePendingExitDraining()
             }
         }
 
@@ -1319,22 +1278,12 @@ class PlaybackService : MediaLibraryService() {
                 if (playbackState.isNotEmpty()) {
                     when (newPlaybackState) {
                         PlaybackStateType.STOPPED -> {
-                            // Check if we're in DRAINING state (actively playing from buffer during reconnection)
-                            val isDraining = syncAudioPlayer?.getPlaybackState() == SyncPlaybackState.DRAINING
-
-                            if (isDraining) {
-                                // We're reconnecting with active buffer - request server to resume playback
-                                Log.i(TAG, "Received stop via group/update while DRAINING - sending play command to resume")
-                                sendSpinClient?.play()
-                                // Don't update playWhenReady or clear buffer - keep playing
-                            } else {
-                                // Stop: "reset position to beginning" - clear buffer
-                                Log.d(TAG, "Playback stopped - clearing audio buffer and releasing playback locks")
-                                sendSpinPlayer?.updatePlayWhenReadyFromServer(false)
-                                syncAudioPlayer?.clearBuffer()
-                                syncAudioPlayer?.pause()
-                                releasePlaybackLocks()
-                            }
+                            // Stop: "reset position to beginning" - clear buffer
+                            Log.d(TAG, "Playback stopped - clearing audio buffer and releasing playback locks")
+                            sendSpinPlayer?.updatePlayWhenReadyFromServer(false)
+                            syncAudioPlayer?.clearBuffer()
+                            syncAudioPlayer?.pause()
+                            releasePlaybackLocks()
                         }
                         PlaybackStateType.PAUSED -> {
                             // Pause: "maintains current position for later resumption" - keep buffer
@@ -1374,11 +1323,6 @@ class PlaybackService : MediaLibraryService() {
 
                 // Broadcast all state including group name to controllers (MainActivity)
                 broadcastSessionExtras()
-
-                // Complete deferred DRAINING exit after processing group state
-                if (playbackState.isNotEmpty()) {
-                    completePendingExitDraining()
-                }
             }
         }
 
@@ -1511,8 +1455,6 @@ class PlaybackService : MediaLibraryService() {
             // where SyncAudioPlayer + foreground-service + lock bookkeeping
             // live.
             mainHandler.post {
-                // Safety net: if stream/start arrives before state/group, complete deferred exit
-                completePendingExitDraining()
                 currentCodec = codec
 
                 // Get the time filter from SendSpin
@@ -1659,21 +1601,14 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onSyncMuteChanged(muted: Boolean) {
             mainHandler.post {
-                syncAudioPlayer?.setSyncMuted(muted)
+                syncAudioPlayer?.setMuted(SyncAudioPlayer.MuteReason.SYNC, muted)
             }
         }
 
         override fun onNetworkChanged() {
             mainHandler.post {
-                // Only clear buffer if NOT in DRAINING state
-                // During reconnection, keep playing from buffer for continuity
-                val player = syncAudioPlayer
-                if (player != null && player.getPlaybackState() == SyncPlaybackState.DRAINING) {
-                    android.util.Log.i(TAG, "Network changed during reconnection - preserving buffer")
-                } else {
-                    android.util.Log.i(TAG, "Network changed - triggering audio player reanchor")
-                    player?.clearBuffer()
-                }
+                android.util.Log.i(TAG, "Network changed - triggering audio player reanchor")
+                syncAudioPlayer?.clearBuffer()
             }
         }
 
@@ -2157,19 +2092,6 @@ class PlaybackService : MediaLibraryService() {
      * - If the app crashes without releasing, max battery drain is limited to 30 minutes
      * - The refresh mechanism ensures continuous playback isn't interrupted
      */
-    /**
-     * If a deferred DRAINING exit is pending, exit now.
-     * Called after onStateChanged/onGroupUpdate has finished processing so that
-     * the DRAINING check in those handlers fires while still in DRAINING state.
-     */
-    private fun completePendingExitDraining() {
-        if (pendingExitDraining) {
-            pendingExitDraining = false
-            Log.d(TAG, "Completing deferred DRAINING exit")
-            syncAudioPlayer?.exitDraining()
-        }
-    }
-
     @Suppress("DEPRECATION")
     private fun acquirePlaybackLocks() {
         // Request audio focus first - required for Android Auto to route audio to us
