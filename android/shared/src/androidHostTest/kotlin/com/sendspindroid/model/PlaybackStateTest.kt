@@ -253,7 +253,9 @@ class PlaybackStateTest {
             playbackState = PlaybackStateType.PAUSED,
             positionMs = 5000,
             positionUpdatedAt = 8_000L,
-            durationMs = 180000
+            durationMs = 180000,
+            // The server reports a pause as playback_speed 0.
+            playbackSpeed = 0
         )
         assertEquals(5000L, state.interpolatedPositionMs)
     }

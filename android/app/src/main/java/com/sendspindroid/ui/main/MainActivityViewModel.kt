@@ -92,6 +92,10 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     private val _positionUpdatedAt = MutableStateFlow(0L)
     val positionUpdatedAt: StateFlow<Long> = _positionUpdatedAt.asStateFlow()
 
+    // The server's playback_speed for the position above: 1000 = normal, 0 = paused.
+    private val _playbackSpeed = MutableStateFlow(1000)
+    val playbackSpeed: StateFlow<Int> = _playbackSpeed.asStateFlow()
+
     // Whether the server currently accepts a seek to a position in the track.
     private val _seekable = MutableStateFlow(false)
     val seekable: StateFlow<Boolean> = _seekable.asStateFlow()
@@ -146,10 +150,16 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _groupName.value = name
     }
 
-    fun updateTrackProgress(positionMs: Long, durationMs: Long, positionUpdatedAt: Long) {
+    fun updateTrackProgress(
+        positionMs: Long,
+        durationMs: Long,
+        positionUpdatedAt: Long,
+        playbackSpeed: Int
+    ) {
         _positionMs.value = positionMs
         _durationMs.value = durationMs
         _positionUpdatedAt.value = positionUpdatedAt
+        _playbackSpeed.value = playbackSpeed
     }
 
     fun updateSeekable(seekable: Boolean) {
@@ -210,6 +220,7 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _positionMs.value = 0
         _durationMs.value = 0
         _positionUpdatedAt.value = 0L
+        _playbackSpeed.value = 1000
         _seekable.value = false
     }
 

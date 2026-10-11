@@ -796,7 +796,8 @@ class SendSpin(
             metadata.artworkUrl.orEmpty(),
             metadata.durationMs,
             positionMs,
-            metadata.progress?.playbackSpeed ?: 1000
+            // No progress object means no position, so nothing to advance.
+            metadata.progress?.playbackSpeed ?: 0
         )
     }
 

@@ -46,7 +46,7 @@ class TrackProgressBarTest {
                 TrackProgressBar(
                     positionMs = 0,
                     durationMs = 180_000,
-                    isPlaying = true,
+                    playbackSpeed = 1000,
                     accentColor = null,
                     positionUpdatedAt = positionUpdatedAt
                 )
@@ -62,6 +62,27 @@ class TrackProgressBarTest {
         composeTestRule.onNodeWithText("0:00 / 3:00").assertIsDisplayed()
     }
 
+    @Test
+    fun advancesAtTheServerSpeed() {
+        // Position 0 reported 60 s ago at 1.5x: 90 s of the track have played.
+        val reportedAt = SystemClock.elapsedRealtime() - 60_000L
+
+        composeTestRule.setContent {
+            SendSpinTheme {
+                TrackProgressBar(
+                    positionMs = 0,
+                    durationMs = 180_000,
+                    playbackSpeed = 1500,
+                    accentColor = null,
+                    positionUpdatedAt = reportedAt
+                )
+            }
+        }
+        composeTestRule.mainClock.advanceTimeBy(300)
+
+        composeTestRule.onNodeWithText("1:30 / 3:00").assertIsDisplayed()
+    }
+
     private val seeks = mutableListOf<Long>()
     private var serverPositionMs by mutableLongStateOf(0L)
     private var serverPositionUpdatedAt by mutableLongStateOf(1L)
@@ -73,7 +94,7 @@ class TrackProgressBarTest {
                 TrackProgressBar(
                     positionMs = serverPositionMs,
                     durationMs = 180_000,
-                    isPlaying = false,
+                    playbackSpeed = 0,
                     accentColor = null,
                     positionUpdatedAt = serverPositionUpdatedAt,
                     seekable = seekable,
