@@ -78,7 +78,7 @@ android {
 
         // versionName: User-visible version string
         // Follows semantic versioning (major.minor.patch[-prerelease])
-        versionName = "2.0.0-Beta17-compat4"
+        versionName = "2.0.0-Beta17-compat5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -2199,10 +2199,8 @@ class PlaybackService : MediaLibraryService() {
         // Refreshed periodically during active playback
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager
-            val isTv = uiModeManager.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
             wakeLock = powerManager.newWakeLock(
-                playbackWakeLockLevel(isTv),
+                PowerManager.PARTIAL_WAKE_LOCK,
                 "SendSpinDroid::AudioPlayback"
             )
         }
@@ -3460,12 +3458,3 @@ class PlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 }
-
-/**
- * Wake lock level held while playing. A TV goes to sleep on its inactivity
- * timeout whatever partial wake locks are held (some boxes then force-suspend,
- * taking the network down), so there it keeps the screen on, like a video player.
- */
-@Suppress("DEPRECATION")
-internal fun playbackWakeLockLevel(isTv: Boolean): Int =
-    if (isTv) PowerManager.SCREEN_DIM_WAKE_LOCK else PowerManager.PARTIAL_WAKE_LOCK
