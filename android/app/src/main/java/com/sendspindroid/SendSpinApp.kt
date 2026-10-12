@@ -1,6 +1,7 @@
 package com.sendspindroid
 
 import android.app.Application
+import androidx.appcompat.app.AppCompatDelegate
 import android.content.Context
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -41,6 +42,9 @@ class SendSpinApp : Application(), ImageLoaderFactory {
         // On Android 12+, applies wallpaper-derived colors to all activities.
         // On older devices, falls back to the static theme colors.
         DynamicColors.applyToActivitiesIfAvailable(this)
+        // Apply the saved light/dark choice before the first Activity inflates.
+        UserSettings.initialize(this)
+        AppCompatDelegate.setDefaultNightMode(UserSettings.themeMode.nightMode)
     }
 
     /**
