@@ -413,6 +413,30 @@ class SendSpinProtocolHandlerTest {
         assertEquals(44100, handler.streamStarts[1].sampleRate)
     }
 
+    // ========== Stream End Role Tests ==========
+
+    @Test
+    fun `stream end for the bare player role ends the stream`() {
+        // Music Assistant 2.10 sends role families without the @v1 suffix
+        handler.handleTextMessageForTest("""{"type":"stream/end","payload":{"roles":["player"]}}""")
+
+        assertEquals(1, handler.streamEnds)
+    }
+
+    @Test
+    fun `stream end for the versioned player role ends the stream`() {
+        handler.handleTextMessageForTest("""{"type":"stream/end","payload":{"roles":["player@v1"]}}""")
+
+        assertEquals(1, handler.streamEnds)
+    }
+
+    @Test
+    fun `stream end for other roles is ignored`() {
+        handler.handleTextMessageForTest("""{"type":"stream/end","payload":{"roles":["visualizer"]}}""")
+
+        assertEquals(0, handler.streamEnds)
+    }
+
     // ========== Helpers ==========
 
     private fun buildServerStateJson(
@@ -586,7 +610,11 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
 
     override fun onStreamClear() {}
 
-    override fun onStreamEnd() {}
+    var streamEnds = 0
+
+    override fun onStreamEnd() {
+        streamEnds++
+    }
 
     override fun onAudioChunk(timestampMicros: Long, audioData: ByteArray) {}
 

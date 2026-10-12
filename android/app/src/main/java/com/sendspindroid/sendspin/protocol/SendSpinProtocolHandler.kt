@@ -1791,7 +1791,9 @@ abstract class SendSpinProtocolHandler(
         val rolesArray = payload?.get("roles")?.jsonArray
         val roles = rolesArray?.map { it.jsonPrimitive.content }
 
-        if (roles != null && SendSpinProtocol.Roles.PLAYER !in roles) {
+        // Compare role families: Music Assistant 2.10 sends "player" without the @v1 suffix
+        val playerFamily = SendSpinProtocol.Roles.PLAYER.substringBefore('@')
+        if (roles != null && roles.none { it.substringBefore('@') == playerFamily }) {
             Log.d(tag, "Stream end for non-player roles: $roles - ignoring")
             return
         }
