@@ -1134,6 +1134,14 @@ class PlaybackService : MediaLibraryService() {
         // Stamped by the decoder, not with this chunk's time: what comes out
         // can be the previous chunk's audio.
         for (audio in decoded) {
+            // The server may run minutes ahead (buffer_capacity counts encoded
+            // bytes), more than the capped decoded queue holds. Wait for room
+            // so the backlog stays encoded in decodeChannel; a stream/clear or
+            // stream/end bumps decodeGeneration and ends the wait.
+            val samples = (audio.pcm.size / player.bytesPerFrame).toLong()
+            while (t.generation == decodeGeneration && !player.hasRoomFor(samples)) {
+                delay(FORMAT_SWITCH_POLL_MS)
+            }
             player.queueChunk(audio.timestampUs, audio.pcm) { t.generation == decodeGeneration }
         }
     }
@@ -2191,8 +2199,10 @@ class PlaybackService : MediaLibraryService() {
         // Refreshed periodically during active playback
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager
+            val isTv = uiModeManager.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
             wakeLock = powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
+                playbackWakeLockLevel(isTv),
                 "SendSpinDroid::AudioPlayback"
             )
         }
@@ -3451,3 +3461,11 @@ class PlaybackService : MediaLibraryService() {
     }
 }
 
+/**
+ * Wake lock level held while playing. A TV goes to sleep on its inactivity
+ * timeout whatever partial wake locks are held (some boxes then force-suspend,
+ * taking the network down), so there it keeps the screen on, like a video player.
+ */
+@Suppress("DEPRECATION")
+internal fun playbackWakeLockLevel(isTv: Boolean): Int =
+    if (isTv) PowerManager.SCREEN_DIM_WAKE_LOCK else PowerManager.PARTIAL_WAKE_LOCK

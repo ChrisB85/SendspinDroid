@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.PreferenceManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
@@ -50,6 +51,7 @@ object UserSettings {
     const val KEY_MINI_PLAYER_POSITION = "mini_player_position"
     const val KEY_ALBUM_ARTISTS_ONLY = "album_artists_only"
     const val KEY_LAYOUT_MODE = "layout_mode"
+    const val KEY_THEME_MODE = "theme_mode"
     const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
 
     // Long-term PSK records from pairing (stored in encrypted prefs).
@@ -490,6 +492,22 @@ object UserSettings {
             }
         }
         set(value) { prefs?.edit()?.putString(KEY_LAYOUT_MODE, value.name)?.apply() }
+
+    /**
+     * Light/dark theme override. SYSTEM follows the device setting.
+     */
+    enum class ThemeMode(val nightMode: Int) {
+        SYSTEM(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM),
+        LIGHT(AppCompatDelegate.MODE_NIGHT_NO),
+        DARK(AppCompatDelegate.MODE_NIGHT_YES)
+    }
+
+    var themeMode: ThemeMode
+        get() {
+            val value = prefs?.getString(KEY_THEME_MODE, null)
+            return ThemeMode.entries.firstOrNull { it.name == value } ?: ThemeMode.SYSTEM
+        }
+        set(value) { prefs?.edit()?.putString(KEY_THEME_MODE, value.name)?.apply() }
 
     /**
      * Position of the mini player in the navigation content area.
