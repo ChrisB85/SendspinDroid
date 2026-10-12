@@ -1285,6 +1285,14 @@ class PlaybackService : MediaLibraryService() {
         // Stamped by the decoder, not with this chunk's time: what comes out
         // can be the previous chunk's audio.
         for (audio in decoded) {
+            // The server may run minutes ahead (buffer_capacity counts encoded
+            // bytes), more than the capped decoded queue holds. Wait for room
+            // so the backlog stays encoded in decodeChannel; a stream/clear or
+            // stream/end bumps decodeGeneration and ends the wait.
+            val samples = (audio.pcm.size / player.bytesPerFrame).toLong()
+            while (t.generation == decodeGeneration && !player.hasRoomFor(samples)) {
+                delay(FORMAT_SWITCH_POLL_MS)
+            }
             player.queueChunk(audio.timestampUs, audio.pcm) { t.generation == decodeGeneration }
         }
     }
