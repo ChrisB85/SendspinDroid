@@ -422,7 +422,7 @@ abstract class SendSpinProtocolHandler(
      * Send player state update (volume/muted/availability).
      */
     protected fun sendPlayerStateUpdate() {
-        val delayMs = getTimeFilter().staticDelayMs
+        val delayMs = getTimeFilter().serverStaticDelayMs
         val minBufferMs = synchronized(adaptiveBufferLock) {
             val target = adaptiveBuffer?.currentTargetMs ?: SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
             lastReportedMinBufferMs = target

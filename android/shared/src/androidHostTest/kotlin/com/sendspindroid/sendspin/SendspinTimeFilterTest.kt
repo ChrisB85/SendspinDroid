@@ -700,7 +700,7 @@ class SendspinTimeFilterTest {
         assertFalse("Concurrent reset and read should not cause exceptions", failed.get())
     }
 
-    // --- Static delay: user slider and server sync offset share one field ---
+    // --- Static delay: user slider and server sync offset are kept apart and summed ---
 
     @Test
     fun `staticDelayMs is the user sync offset`() {
@@ -710,11 +710,28 @@ class SendspinTimeFilterTest {
     }
 
     @Test
-    fun `server sync_offset replaces the user sync offset`() {
+    fun `server sync_offset adds to the user sync offset`() {
         val f = SendspinTimeFilter()
         f.setUserSyncOffsetMs(25.0)
         f.setServerSyncOffsetMs(-40.0)
-        assertEquals(-40.0, f.staticDelayMs, 0.0001)
+        assertEquals(-15.0, f.staticDelayMs, 0.0001)
+    }
+
+    @Test
+    fun `a server static delay of zero keeps the user sync offset`() {
+        // Music Assistant pushes "set static delay 0" on some reconnects
+        val f = SendspinTimeFilter()
+        f.setUserSyncOffsetMs(-850.0)
+        f.setServerSyncOffsetMs(0.0)
+        assertEquals(-850.0, f.staticDelayMs, 0.0001)
+    }
+
+    @Test
+    fun `only the server part is reported back to the server`() {
+        val f = SendspinTimeFilter()
+        f.setUserSyncOffsetMs(-850.0)
+        f.setServerSyncOffsetMs(120.0)
+        assertEquals(120.0, f.serverStaticDelayMs, 0.0001)
     }
 
     @Test

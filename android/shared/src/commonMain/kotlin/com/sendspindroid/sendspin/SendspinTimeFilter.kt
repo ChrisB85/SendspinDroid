@@ -150,12 +150,18 @@ class SendspinTimeFilter {
     private var recentOffsetsCount = 0
     private var rejectedCount = 0  // Consecutive rejections (for forced acceptance)
 
-    // Static delay: the sync offset set by the user's slider or pushed by the
-    // server. Output latency up to the DAC is not part of it - the player
-    // schedules against AudioTrack timestamps, which already include it.
+    // Static delay: the user's slider plus the offset pushed by the server,
+    // kept apart so a server push (Music Assistant sends 0 on some
+    // reconnects) cannot erase the user's calibration. Output latency up to
+    // the DAC is not part of it - the player schedules against AudioTrack
+    // timestamps, which already include it.
     // @Volatile: read by the audio thread (serverToClient), written from
     // UI/main threads.
     @Volatile private var userSyncOffsetMicros: Long = 0
+    @Volatile private var serverSyncOffsetMicros: Long = 0
+
+    private val syncOffsetMicros: Long
+        get() = userSyncOffsetMicros + serverSyncOffsetMicros
 
     // Convergence tracking
     private var convergenceTimeMs: Long = 0L       // Time to reach isConverged
@@ -237,7 +243,11 @@ class SendspinTimeFilter {
      * Positive = delay playback (plays later), Negative = advance (plays earlier).
      */
     val staticDelayMs: Double
-        get() = userSyncOffsetMicros / 1000.0
+        get() = syncOffsetMicros / 1000.0
+
+    /** The server-pushed part of [staticDelayMs], the one reported back to the server. */
+    val serverStaticDelayMs: Double
+        get() = serverSyncOffsetMicros / 1000.0
 
     /**
      * Write the user's manual sync-offset correction (milliseconds).
@@ -248,12 +258,11 @@ class SendspinTimeFilter {
     }
 
     /**
-     * Write a server-pushed sync-offset (from `client/sync_offset`).
-     * Goes into the same field as the user slider because both are
-     * corrections to when this device should play.
+     * Write a server-pushed sync-offset (from `client/sync_offset` or a
+     * static delay command). Added to the user slider, not replacing it.
      */
     fun setServerSyncOffsetMs(ms: Double) {
-        userSyncOffsetMicros = (ms * 1000).toLong()
+        serverSyncOffsetMicros = (ms * 1000).toLong()
     }
 
     /**
@@ -593,7 +602,7 @@ class SendspinTimeFilter {
         val s = snapshot
         val drift = s.effectiveDrift
         val clientTime = (serverTimeMicros - s.offset + drift * s.lastUpdateTime) / (1.0 + drift)
-        return clientTime.roundToLong() + userSyncOffsetMicros
+        return clientTime.roundToLong() + syncOffsetMicros
     }
 
     /**
@@ -603,7 +612,7 @@ class SendspinTimeFilter {
      */
     fun clientToServer(clientTimeMicros: Long): Long {
         val s = snapshot
-        val clientTime = clientTimeMicros - userSyncOffsetMicros
+        val clientTime = clientTimeMicros - syncOffsetMicros
         val offsetNow = s.offset + s.effectiveDrift * (clientTime - s.lastUpdateTime)
         return clientTime + offsetNow.roundToLong()
     }
