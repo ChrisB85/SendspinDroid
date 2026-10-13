@@ -42,4 +42,10 @@ class BecomingNoisyHandlingTest {
         onReceive(null)
         assertFalse(playerPaused)
     }
+
+    @Test
+    fun `a TV does not pause on output disconnect`() {
+        assertFalse("HDMI hotplug on a TV must not pause", PlaybackService.pausesOnOutputDisconnect(isTv = true))
+        assertTrue(PlaybackService.pausesOnOutputDisconnect(isTv = false))
+    }
 }

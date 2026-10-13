@@ -46,6 +46,7 @@ import com.sendspindroid.MainActivity
 
 import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.ui.settings.SettingsViewModel
+import com.sendspindroid.ui.adaptive.isTvDevice
 import com.sendspindroid.coordinator.ConnectionCoordinator
 import com.sendspindroid.coordinator.FailureReason
 import com.sendspindroid.coordinator.ReconnectStatus
@@ -376,6 +377,13 @@ class PlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG = "PlaybackService"
+
+        /**
+         * On a TV the output "disconnects" whenever the HDMI sink wakes, sleeps or renegotiates
+         * (hotplug), and there is no built-in speaker to protect: pausing there silenced the
+         * music ~20 s into playback while the server kept streaming.
+         */
+        internal fun pausesOnOutputDisconnect(isTv: Boolean): Boolean = !isTv
 
         // Wake lock refresh strategy:
         // - Use a 30-minute timeout so if release fails (crash, etc.), max battery drain is 30 min
@@ -2490,6 +2498,10 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun registerBecomingNoisyReceiver() {
         if (becomingNoisyReceiver != null) return
+        if (!pausesOnOutputDisconnect(isTvDevice())) {
+            Log.d(TAG, "TV device: ACTION_AUDIO_BECOMING_NOISY ignored (HDMI hotplug, no built-in speaker)")
+            return
+        }
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
