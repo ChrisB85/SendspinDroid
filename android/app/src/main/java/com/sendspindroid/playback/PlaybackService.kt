@@ -1235,17 +1235,23 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun startDecodeWorker() {
         decodeJob = serviceScope.launch(decodeDispatcher) {
-            for (task in decodeChannel) {
-                try {
-                    when (task) {
-                        is DecodeTask.Chunk -> handleDecodeChunk(task)
-                        is DecodeTask.StartStream -> handleDecodeStartStream(task)
-                        DecodeTask.Flush -> handleDecodeFlush()
-                        DecodeTask.Release -> handleDecodeRelease()
+            try {
+                for (task in decodeChannel) {
+                    try {
+                        when (task) {
+                            is DecodeTask.Chunk -> handleDecodeChunk(task)
+                            is DecodeTask.StartStream -> handleDecodeStartStream(task)
+                            DecodeTask.Flush -> handleDecodeFlush()
+                            DecodeTask.Release -> handleDecodeRelease()
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Decode worker error on task ${task::class.simpleName}", e)
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Decode worker error on task ${task::class.simpleName}", e)
                 }
+            } finally {
+                // onDestroy's Release is lost when the channel is full, and a
+                // cancelled worker never reaches it. Release on the way out.
+                handleDecodeRelease()
             }
         }
     }
@@ -3717,7 +3723,9 @@ class PlaybackService : MediaLibraryService() {
         // don't want to block teardown waiting for the worker to make
         // progress; handleDecodeRelease still runs if trySend succeeds, or
         // the worker will release the decoder as it exits when the channel
-        // is closed.
+        // is closed. Bumping the generation first ends a wait for queue room
+        // and drops the backlog undecoded, so the worker can exit in time.
+        decodeGeneration++
         decodeChannel.trySend(DecodeTask.Release)
         decodeChannel.close()
         runBlocking {
