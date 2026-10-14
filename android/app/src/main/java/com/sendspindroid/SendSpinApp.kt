@@ -1,8 +1,8 @@
 package com.sendspindroid
 
 import android.app.Application
-import androidx.appcompat.app.AppCompatDelegate
 import android.content.Context
+import androidx.appcompat.app.AppCompatDelegate
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.request.CachePolicy

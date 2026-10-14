@@ -1,11 +1,11 @@
 package com.sendspindroid.ui.settings
 
-import androidx.appcompat.app.AppCompatDelegate
 import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.os.PowerManager
 import android.util.Log
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
